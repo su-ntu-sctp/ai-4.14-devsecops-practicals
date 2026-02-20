@@ -63,9 +63,12 @@ jobs:
       - restore_cache:
           keys:
             - maven-deps-{{ checksum "pom.xml" }}
+            - maven-deps-
       - run:
-          name: Build
-          command: mvn clean install -DskipTests
+          name: Install dependencies and build
+          command: |
+            echo "Building the application..."
+            mvn clean install -DskipTests
       - save_cache:
           paths:
             - ~/.m2
@@ -83,10 +86,15 @@ jobs:
       - restore_cache:
           keys:
             - maven-deps-{{ checksum "pom.xml" }}
+            - maven-deps-
       - run:
-          name: Test
-          command: mvn test
+          name: Run tests
+          command: |
+            echo "Running tests..."
+            mvn test
       - store_test_results:
+          path: target/surefire-reports
+      - store_artifacts:
           path: target/surefire-reports
 
   publish:
@@ -98,12 +106,16 @@ jobs:
           at: .
       - setup_remote_docker
       - run:
-          name: Build Docker Image
-          command: docker build -t $DOCKER_USERNAME/devops-demo:latest .
+          name: Build Docker image
+          command: |
+            echo "Building Docker image..."
+            docker build -t $DOCKER_USERNAME/devops-demo:latest .
       - run:
           name: Push to Docker Hub
           command: |
+            echo "Logging in to Docker Hub..."
             echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
+            echo "Pushing image to Docker Hub..."
             docker push $DOCKER_USERNAME/devops-demo:latest
 
   deploy:
@@ -195,6 +207,7 @@ Open `.circleci/config.yml` and add this new job after the `test` job:
       - restore_cache:
           keys:
             - maven-deps-{{ checksum "pom.xml" }}
+            - maven-deps-
       
       # Run OWASP Dependency-Check
       - run:
@@ -285,9 +298,12 @@ jobs:
       - restore_cache:
           keys:
             - maven-deps-{{ checksum "pom.xml" }}
+            - maven-deps-
       - run:
-          name: Build
-          command: mvn clean install -DskipTests
+          name: Install dependencies and build
+          command: |
+            echo "Building the application..."
+            mvn clean install -DskipTests
       - save_cache:
           paths:
             - ~/.m2
@@ -306,10 +322,15 @@ jobs:
       - restore_cache:
           keys:
             - maven-deps-{{ checksum "pom.xml" }}
+            - maven-deps-
       - run:
-          name: Test
-          command: mvn test
+          name: Run tests
+          command: |
+            echo "Running tests..."
+            mvn test
       - store_test_results:
+          path: target/surefire-reports
+      - store_artifacts:
           path: target/surefire-reports
 
   # NEW: Security scan job
@@ -321,6 +342,7 @@ jobs:
       - restore_cache:
           keys:
             - maven-deps-{{ checksum "pom.xml" }}
+            - maven-deps-
       - run:
           name: Run Dependency Check
           command: |
@@ -342,12 +364,16 @@ jobs:
           at: .
       - setup_remote_docker
       - run:
-          name: Build Docker Image
-          command: docker build -t $DOCKER_USERNAME/devops-demo:latest .
+          name: Build Docker image
+          command: |
+            echo "Building Docker image..."
+            docker build -t $DOCKER_USERNAME/devops-demo:latest .
       - run:
           name: Push to Docker Hub
           command: |
+            echo "Logging in to Docker Hub..."
             echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
+            echo "Pushing image to Docker Hub..."
             docker push $DOCKER_USERNAME/devops-demo:latest
 
   # Deploy job (unchanged)
