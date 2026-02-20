@@ -18,7 +18,8 @@ Before starting this lesson, ensure you have:
 
 - Completed Lesson 4.13 (DevSecOps Foundations)
 - Completed Lesson 4.7 (CI with CircleCI)
-- Your **devops-demo** project with CircleCI configured
+- Completed Lesson 4.12 (Continuous Deployment to Railway)
+- Your **devops-demo** project with complete CI/CD pipeline
 - CircleCI account with project connected
 - Access to your GitHub repository
 
@@ -34,6 +35,7 @@ By the end of this lesson, your pipeline will automatically:
 - Scan all dependencies for known vulnerabilities
 - Generate detailed security reports
 - Block deployment if critical vulnerabilities are found
+- Ensure only secure code reaches Railway production
 
 **This is real-world DevSecOps in action!**
 
@@ -41,13 +43,13 @@ By the end of this lesson, your pipeline will automatically:
 
 ## Part 1 - Review Current Pipeline (15 minutes)
 
-Before adding security, let's review what your pipeline currently does.
+Before adding security, let's review what your pipeline currently does after completing Lesson 4.12.
 
 ### Step 1: Check Your Current CircleCI Config
 
 Open your **devops-demo** project and look at `.circleci/config.yml`
 
-**Your current pipeline (from Lesson 4.7):**
+**Your current pipeline (from Lesson 4.12 with Railway deployment):**
 
 ```yml
 version: 2.1
@@ -94,8 +96,7 @@ jobs:
       - checkout
       - attach_workspace:
           at: .
-      - setup_remote_docker:
-          version: 20.10.14
+      - setup_remote_docker
       - run:
           name: Build Docker Image
           command: docker build -t $DOCKER_USERNAME/devops-demo:latest .
@@ -105,8 +106,19 @@ jobs:
             echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
             docker push $DOCKER_USERNAME/devops-demo:latest
 
+  deploy:
+    docker:
+      - image: cimg/node:18.20
+    steps:
+      - checkout
+      - run:
+          name: Deploy to Railway
+          command: |
+            echo "Deploying to Railway..."
+            npx @railway/cli up --service=$RAILWAY_SERVICE_ID --ci
+
 workflows:
-  build_test_publish:
+  build_test_publish_deploy:
     jobs:
       - build
       - test:
@@ -115,11 +127,14 @@ workflows:
       - publish:
           requires:
             - test
+      - deploy:
+          requires:
+            - publish
 ```
 
 **Current flow:**
 ```
-Build → Test → Publish
+Build → Test → Publish → Deploy to Railway
 ```
 
 **What's missing? SECURITY!**
@@ -130,7 +145,7 @@ Build → Test → Publish
 
 **New flow:**
 ```
-Build → Test → Security Scan → Publish
+Build → Test → Security Scan → Publish → Deploy to Railway
 ```
 
 **The security scan will:**
@@ -138,7 +153,9 @@ Build → Test → Security Scan → Publish
 2. Match them against CVE database
 3. Generate a vulnerability report
 4. Fail the build if critical vulnerabilities found
-5. Prevent vulnerable code from reaching Docker Hub
+5. Prevent vulnerable code from reaching Docker Hub AND Railway
+
+**This is the security gate!** No vulnerabilities = deployment proceeds. Vulnerabilities found = pipeline stops!
 
 ---
 
@@ -205,7 +222,7 @@ Update the `workflows` section at the bottom of your config:
 **Before:**
 ```yml
 workflows:
-  build_test_publish:
+  build_test_publish_deploy:
     jobs:
       - build
       - test:
@@ -214,12 +231,15 @@ workflows:
       - publish:
           requires:
             - test
+      - deploy:
+          requires:
+            - publish
 ```
 
-**After (add security_scan):**
+**After (add security_scan between test and publish):**
 ```yml
 workflows:
-  build_test_publish:
+  build_test_publish_deploy:
     jobs:
       - build
       - test:
@@ -231,14 +251,19 @@ workflows:
       - publish:
           requires:
             - security_scan
+      - deploy:
+          requires:
+            - publish
 ```
 
 **New flow:**
 ```
-build → test → security_scan → publish
+build → test → security_scan → publish → deploy
                      ↓
               If vulnerabilities found,
               pipeline STOPS here!
+              No Docker image published!
+              No Railway deployment!
 ```
 
 ---
@@ -315,8 +340,7 @@ jobs:
       - checkout
       - attach_workspace:
           at: .
-      - setup_remote_docker:
-          version: 20.10.14
+      - setup_remote_docker
       - run:
           name: Build Docker Image
           command: docker build -t $DOCKER_USERNAME/devops-demo:latest .
@@ -326,9 +350,21 @@ jobs:
             echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
             docker push $DOCKER_USERNAME/devops-demo:latest
 
+  # Deploy job (unchanged)
+  deploy:
+    docker:
+      - image: cimg/node:18.20
+    steps:
+      - checkout
+      - run:
+          name: Deploy to Railway
+          command: |
+            echo "Deploying to Railway..."
+            npx @railway/cli up --service=$RAILWAY_SERVICE_ID --ci
+
 # Updated workflow with security scan
 workflows:
-  build_test_publish:
+  build_test_publish_deploy:
     jobs:
       - build
       - test:
@@ -340,6 +376,9 @@ workflows:
       - publish:
           requires:
             - security_scan
+      - deploy:
+          requires:
+            - publish
 ```
 
 ---
@@ -359,7 +398,7 @@ git status
 git add .circleci/config.yml
 
 # Commit with descriptive message
-git commit -m "Add OWASP Dependency-Check to CI pipeline"
+git commit -m "Add OWASP Dependency-Check to CI/CD pipeline"
 
 # Push to trigger pipeline
 git push origin main
@@ -391,10 +430,11 @@ Now watch your pipeline run with the new security scan!
 
 **Pipeline stages:**
 ```
-1. build      (running...)
-2. test       (waiting...)
-3. security_scan (waiting...)
-4. publish    (waiting...)
+1. build          (running...)
+2. test           (waiting...)
+3. security_scan  (waiting...)
+4. publish        (waiting...)
+5. deploy         (waiting...)
 ```
 
 ---
@@ -415,7 +455,14 @@ Now watch your pipeline run with the new security scan!
 - Scans all dependencies (~1-2 minutes)
 - Generates report (~1 minute)
 
-**Why is it slow the first time?**
+**publish job:** ~2 minutes (if security passes)
+- Builds Docker image
+- Pushes to Docker Hub
+
+**deploy job:** ~1 minute (if publish succeeds)
+- Triggers Railway deployment
+
+**Why is security scan slow the first time?**
 - Must download entire CVE database (500+ MB)
 - Subsequent runs use cached database (much faster)
 
@@ -458,8 +505,8 @@ Running security scan...
 [INFO] BUILD SUCCESS
 ```
 
-**If no vulnerabilities:** ✅ Pipeline continues to publish
-**If vulnerabilities found:** ❌ Pipeline fails, publish doesn't run
+**If no vulnerabilities:** ✅ Pipeline continues to publish → deploy
+**If vulnerabilities found:** ❌ Pipeline fails, neither publish nor deploy run
 
 ---
 
@@ -475,7 +522,7 @@ Running security scan...
 
 **Summary:**
 ```
-Scan Date: 2026-02-02
+Scan Date: 2026-02-20
 Total Dependencies: 47
 Vulnerable Dependencies: 0
 ```
@@ -501,7 +548,9 @@ To demonstrate how security scanning works, we'll temporarily add an old, vulner
 
 ### Step 1: Add Vulnerable Dependency
 
-Open `pom.xml` and add this **old version** of Jackson:
+**We'll use an older version of commons-collections4** which has known vulnerabilities.
+
+Open `pom.xml` and add this **old version**:
 
 ```xml
 <dependencies>
@@ -519,18 +568,18 @@ Open `pom.xml` and add this **old version** of Jackson:
     
     <!-- ADD THIS VULNERABLE DEPENDENCY -->
     <dependency>
-        <groupId>com.fasterxml.jackson.core</groupId>
-        <artifactId>jackson-databind</artifactId>
-        <version>2.9.8</version>  <!-- OLD VULNERABLE VERSION! -->
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-collections4</artifactId>
+        <version>4.0</version>  <!-- OLD VULNERABLE VERSION! -->
     </dependency>
 </dependencies>
 ```
 
 **Why this version?**
-- Jackson 2.9.8 has multiple known CVEs
-- CVE-2019-12086 (High severity)
-- CVE-2019-12384 (High severity)
+- Commons Collections 4.0 has known CVE-2015-6420
+- High severity vulnerability
 - Perfect for learning!
+- Doesn't conflict with Spring Boot's dependencies
 
 ---
 
@@ -538,7 +587,7 @@ Open `pom.xml` and add this **old version** of Jackson:
 
 ```bash
 git add pom.xml
-git commit -m "Add vulnerable Jackson dependency for testing"
+git commit -m "Add vulnerable commons-collections4 dependency for testing"
 git push origin main
 ```
 
@@ -560,9 +609,8 @@ Go to CircleCI and watch the pipeline.
 [ERROR] 
 [ERROR] One or more dependencies were identified with known vulnerabilities:
 [ERROR] 
-[ERROR] jackson-databind-2.9.8.jar (pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8)
-[ERROR]     CVE-2019-12086 Severity: HIGH Score: 7.5
-[ERROR]     CVE-2019-12384 Severity: HIGH Score: 7.5
+[ERROR] commons-collections4-4.0.jar (pkg:maven/org.apache.commons/commons-collections4@4.0)
+[ERROR]     CVE-2015-6420 Severity: HIGH (7.5)
 [ERROR] 
 [ERROR] See the dependency-check report for more details.
 [ERROR] 
@@ -571,7 +619,10 @@ Go to CircleCI and watch the pipeline.
 
 **Pipeline stops at security_scan!** ✅
 
-**publish job never runs** - vulnerable code is blocked!
+**publish job never runs** - Docker image not built!
+**deploy job never runs** - Railway not triggered!
+
+**Vulnerable code is completely blocked from production!**
 
 ---
 
@@ -586,7 +637,7 @@ Click **Artifacts** → **security-report/dependency-check-report.html**
 Dependencies Scanned: 48
 Vulnerable Dependencies: 1
 Critical: 0
-High: 2
+High: 1
 Medium: 0
 Low: 0
 ```
@@ -594,19 +645,20 @@ Low: 0
 **Vulnerability Details:**
 
 ```
-jackson-databind-2.9.8.jar
-└── CVE-2019-12086
+commons-collections4-4.0.jar
+└── CVE-2015-6420
     Severity: HIGH (7.5/10)
-    Description: A Polymorphic Typing issue was discovered in 
-    FasterXML jackson-databind before 2.9.9.
-    Recommendation: Upgrade to version 2.9.9 or later
-
-└── CVE-2019-12384
-    Severity: HIGH (7.5/10)
-    Description: FasterXML jackson-databind might allow attackers 
-    to have a variety of impacts by leveraging failure to block 
-    the logback-core class.
-    Recommendation: Upgrade to version 2.9.9.1 or later
+    Description: Serialized-object interfaces in certain Cisco 
+    Collaboration and Social Media; Endpoint Clients and Client 
+    Software; Network Application, Service, and Acceleration; 
+    Network and Content Security Devices; Network Management 
+    and Provisioning; Routing and Switching - Enterprise and 
+    Service Provider; Unified Computing; Voice and Unified 
+    Communications Devices; Video, Streaming, TelePresence, 
+    and Transcoding Devices; Wireless; and Apache Commons 
+    Collections use an insecure deserialization method.
+    
+    Recommendation: Upgrade to version 4.1 or later
 ```
 
 ---
@@ -618,14 +670,14 @@ Now let's fix the vulnerability by updating to a secure version.
 ### Step 1: Determine Safe Version
 
 **From the report, we know:**
-- Current version: 2.9.8 (vulnerable)
-- Recommended: 2.9.9 or later
+- Current version: 4.0 (vulnerable)
+- Recommended: 4.1 or later
 
 **Let's check latest version:**
 
-Go to https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-databind
+Go to https://mvnrepository.com/artifact/org.apache.commons/commons-collections4
 
-**Latest stable version:** 2.15.3 (or whatever is current)
+**Latest stable version:** 4.4 (or whatever is current)
 
 ---
 
@@ -636,16 +688,16 @@ Go to https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-data
 ```xml
 <!-- BEFORE (vulnerable) -->
 <dependency>
-    <groupId>com.fasterxml.jackson.core</groupId>
-    <artifactId>jackson-databind</artifactId>
-    <version>2.9.8</version>  <!-- VULNERABLE -->
+    <groupId>org.apache.commons</groupId>
+    <artifactId>commons-collections4</artifactId>
+    <version>4.0</version>  <!-- VULNERABLE -->
 </dependency>
 
 <!-- AFTER (fixed) -->
 <dependency>
-    <groupId>com.fasterxml.jackson.core</groupId>
-    <artifactId>jackson-databind</artifactId>
-    <version>2.15.3</version>  <!-- SECURE -->
+    <groupId>org.apache.commons</groupId>
+    <artifactId>commons-collections4</artifactId>
+    <version>4.4</version>  <!-- SECURE -->
 </dependency>
 ```
 
@@ -684,7 +736,7 @@ mvn org.owasp:dependency-check-maven:check
 
 ```bash
 git add pom.xml
-git commit -m "Fix: Update Jackson to secure version 2.15.3"
+git commit -m "Fix: Update commons-collections4 to secure version 4.4"
 git push origin main
 ```
 
@@ -699,10 +751,11 @@ Watch the pipeline run again with the fix.
 **Pipeline runs again:**
 
 ```
-1. build      ✅ SUCCESS
-2. test       ✅ SUCCESS
-3. security_scan ✅ SUCCESS (no vulnerabilities!)
-4. publish    ✅ SUCCESS (image pushed to Docker Hub)
+1. build          ✅ SUCCESS
+2. test           ✅ SUCCESS
+3. security_scan  ✅ SUCCESS (no vulnerabilities!)
+4. publish        ✅ SUCCESS (image built and pushed)
+5. deploy         ✅ SUCCESS (Railway deployment triggered)
 ```
 
 **This time, all jobs pass!** 🎉
@@ -716,7 +769,7 @@ Watch the pipeline run again with the fix.
 ```
 [INFO] Analyzing Dependencies...
 [INFO] 
-[INFO] Scanning: jackson-databind-2.15.3.jar
+[INFO] Scanning: commons-collections4-4.4.jar
 [INFO] 
 [INFO] Generating Report...
 [INFO] Found 0 vulnerabilities
@@ -758,6 +811,30 @@ Low: 0
 
 ---
 
+### Step 5: Verify Railway Deployment
+
+1. Go to Railway dashboard: [https://railway.app](https://railway.app)
+2. Click on your devops-demo project
+3. Click on your devops-demo service
+4. Click **"Deployments"** tab
+5. You should see a new deployment triggered by CircleCI
+6. Watch the deployment status
+
+**Once deployment completes:**
+
+```bash
+curl https://your-railway-url.up.railway.app/hello
+```
+
+**Expected response:**
+```
+DevOps demo application is running!
+```
+
+**Success!** Secure code is now live on Railway! 🚀
+
+---
+
 ### What Just Happened?
 
 **Complete DevSecOps Flow:**
@@ -771,18 +848,24 @@ Low: 0
    ↓
 4. CircleCI runs tests
    ↓
-5. CircleCI scans for vulnerabilities ← NEW!
+5. CircleCI scans for vulnerabilities ← NEW SECURITY GATE!
    ↓
 6. If secure: Build Docker image
    ↓
 7. Push to Docker Hub
    ↓
-8. Ready for deployment
+8. Trigger Railway deployment
+   ↓
+9. Railway pulls code and deploys
+   ↓
+10. Application live in production (secure!)
 ```
 
 **If vulnerabilities found at step 5:**
 - Pipeline stops immediately
 - Developer gets notification
+- No Docker image built
+- No Railway deployment triggered
 - No vulnerable code reaches production
 - Must fix before deploying
 
@@ -811,23 +894,23 @@ Let's dive deeper into interpreting security reports.
 ### Example Vulnerability Entry
 
 ```
-CVE-2019-12086
+CVE-2015-6420
 Severity: HIGH (7.5/10)
 CVSS Vector: CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N
 
 Description:
-A Polymorphic Typing issue was discovered in FasterXML 
-jackson-databind before 2.9.9. When Default Typing is enabled,
-the class leads to remote code execution.
+Serialized-object interfaces in Apache Commons Collections 
+use an insecure deserialization method that allows remote 
+code execution.
 
 Affected Versions: 
-All versions before 2.9.9
+All versions before 4.1
 
 Fixed Versions:
-2.9.9, 2.9.9.1, 2.10.0 and later
+4.1, 4.2, 4.3, 4.4 and later
 
 Recommendation:
-Upgrade to jackson-databind version 2.9.9 or later
+Upgrade to commons-collections4 version 4.1 or later
 ```
 
 **What this tells you:**
@@ -971,7 +1054,8 @@ mvn versions:display-dependency-updates
 - ✅ Generate reports automatically
 - ✅ Fail builds on critical issues
 - ✅ Notify team of vulnerabilities
-- ✅ Block vulnerable code from production
+- ✅ Block vulnerable code from Docker Hub
+- ✅ Block vulnerable code from Railway production
 
 **No manual security reviews needed!**
 
@@ -988,7 +1072,7 @@ mvn versions:display-dependency-updates
 5. ✅ Read and interpreted security reports
 6. ✅ Fixed vulnerability by updating dependency
 7. ✅ Verified pipeline passes with secure code
-8. ✅ Blocked vulnerable code from reaching Docker Hub
+8. ✅ Blocked vulnerable code from reaching Docker Hub AND Railway
 
 ---
 
@@ -1000,13 +1084,13 @@ mvn versions:display-dependency-updates
 - No vulnerable code reaches production
 - Shift-left prevents expensive late fixes
 
-**Your Pipeline Now:**
+**Your Complete Pipeline Now:**
 ```
-Build → Test → Security Scan → Publish
+Build → Test → Security Scan → Publish → Deploy to Railway
 ```
 
 **Security as a Gate:**
-- High/Critical vulnerabilities block deployment
+- High/Critical vulnerabilities block everything
 - Forces immediate fixes
 - Creates secure-by-default culture
 
@@ -1023,7 +1107,8 @@ Build → Test → Security Scan → Publish
 ```
 ✅ Automated build
 ✅ Automated tests
-✅ Automated deployment
+✅ Automated Docker publishing
+✅ Automated Railway deployment
 ❌ No security checks
 ❌ Vulnerable code could reach production
 ❌ Security issues discovered too late
@@ -1034,7 +1119,8 @@ Build → Test → Security Scan → Publish
 ✅ Automated build
 ✅ Automated tests
 ✅ Automated security scanning ← NEW!
-✅ Automated deployment (only if secure)
+✅ Automated Docker publishing (only if secure)
+✅ Automated Railway deployment (only if secure)
 ✅ Vulnerabilities caught immediately
 ✅ Production stays secure
 ```
@@ -1192,28 +1278,28 @@ Verify in config.yml:
 
 ## Optional: Remove Test Vulnerability
 
-If you added the vulnerable Jackson dependency just for learning, remove it now:
+If you added the vulnerable commons-collections4 dependency just for learning, you can remove it now if you don't actually need it in your application:
 
 **Edit pom.xml:**
 
 ```xml
-<!-- REMOVE THIS -->
+<!-- REMOVE THIS IF NOT NEEDED -->
 <dependency>
-    <groupId>com.fasterxml.jackson.core</groupId>
-    <artifactId>jackson-databind</artifactId>
-    <version>2.15.3</version>
+    <groupId>org.apache.commons</groupId>
+    <artifactId>commons-collections4</artifactId>
+    <version>4.4</version>
 </dependency>
 ```
 
-**Why remove?**
-- Spring Boot already includes Jackson
-- No need for explicit dependency
+**Why consider removing?**
+- Only add dependencies you actually use
+- Fewer dependencies = smaller attack surface
 - Cleaner pom.xml
 
 **Commit:**
 ```bash
 git add pom.xml
-git commit -m "Remove redundant Jackson dependency"
+git commit -m "Remove test dependency (not needed for application)"
 git push origin main
 ```
 
@@ -1225,4 +1311,11 @@ git push origin main
 
 **You've completed the entire DevSecOps module!** 
 
-**You are now equipped with real-world DevSecOps skills!**
+**Your pipeline now:**
+- ✅ Builds automatically
+- ✅ Tests automatically
+- ✅ Scans for security vulnerabilities
+- ✅ Publishes Docker images (only if secure)
+- ✅ Deploys to Railway (only if secure)
+
+**You are now equipped with real-world DevSecOps skills that companies actively seek!** 🎉
