@@ -62,7 +62,7 @@ D - Container scanning - it checks the Docker image
 
 ---
 
-Q7: Which ZAP scan is safe to run against your live Railway app?
+Q7: Which ZAP scan is safe to run against your live app?
 
 A - The baseline scan, because it only sends normal requests and inspects the responses
 

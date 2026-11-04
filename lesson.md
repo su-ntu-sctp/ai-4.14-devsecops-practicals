@@ -18,7 +18,7 @@ Before starting this lesson, ensure you have:
 - Your **devops-demo** repository on GitHub (**public**), with the CircleCI pipeline from Lesson 4.13
   (`snyk_scan` failing is expected - the release is blocked until developers fix the findings)
 - Your security ticket (GitHub issue) from Lesson 4.13
-- Your **APP URL** (e.g. `https://devops-demo-sample.up.railway.app`)
+- Your **APP URL** (e.g. `https://devops-demo-sample.onrender.com` or `https://devops-demo-sample.up.railway.app`)
 - GitHub Actions basics from Lesson 4.9
 
 ---
@@ -36,10 +36,10 @@ Today you'll add two more security checks - this time with **GitHub Actions**, i
 
 ```
 CircleCI (gate):       build ─► test ──┐
-                       snyk_scan ──────┴─► publish ─► deploy ─► Railway
-                                                                  ▲
-GitHub Actions         OSV-Scanner: scans the repository          │
-(watchdogs):           ZAP: scans the live app ───────────────────┘
+                       snyk_scan ──────┴─► publish ─► deploy ─► Render / Railway
+                                                                    ▲
+GitHub Actions         OSV-Scanner: scans the repository            │
+(watchdogs):           ZAP: scans the live app ─────────────────────┘
 ```
 
 Neither new workflow is connected to CircleCI - they never block a release. They **watch** and **report**, and the results land in GitHub.

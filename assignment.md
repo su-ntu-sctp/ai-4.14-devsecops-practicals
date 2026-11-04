@@ -30,7 +30,7 @@ Add non-blocking security checks to your repository with GitHub Actions, and pra
      - Why every ignore needs a reason and an expiry date
 
 3. **Run a DAST Scan (Stretch)**
-   - Add `.github/workflows/zap-baseline.yml` using `zaproxy/action-baseline` (pinned by commit SHA) against your Railway URL, stored as the repository variable `RAILWAY_APP_URL`
+   - Add `.github/workflows/zap-baseline.yml` using `zaproxy/action-baseline` (pinned by commit SHA) against your live app URL (Render or Railway), stored as the repository variable `APP_URL`
    - Run it manually and download the `zap_scan` artifact
    - List the three highest-risk alerts and the solution ZAP suggests for each
 
