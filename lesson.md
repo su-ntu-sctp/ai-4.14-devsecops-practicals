@@ -1,12 +1,13 @@
-# Lesson 4.14: DevSecOps Practicals - OSV-Scanner and OWASP ZAP
+# Lesson 4.14: DevSecOps Practicals - Dependabot and OWASP ZAP
 
 ## Learning Objectives
 
 By the end of this lesson, you will be able to:
 
-1. **Add** OSV-Scanner to a repository with GitHub Actions, pinned by commit SHA
-2. **Distinguish** blocking security gates from non-blocking security checks
-3. **Run** an OWASP ZAP baseline (DAST) scan against a deployed application and interpret its alerts
+1. **Turn on** Dependabot for a Maven project - alerts, security updates and automatic dependency submission
+2. **Distinguish** blocking security checks from non-blocking security checks
+3. **Triage** a Dependabot alert - dismiss it with a reason, and compare it with the `.snyk` ignore from Lesson 4.13
+4. **Run** an OWASP ZAP baseline (DAST) scan against a deployed application and interpret its alerts
 
 ---
 
@@ -17,146 +18,178 @@ Before starting this lesson, ensure you have:
 - Completed Lesson 4.13 (DevSecOps Foundations), including **Activity 3** (Snyk)
 - Your **devops-demo** repository on GitHub (**public**), with the CircleCI pipeline from Lesson 4.13
   (`snyk_scan` failing is expected - the release is blocked until developers fix the findings)
-- Your security ticket (GitHub issue) from Lesson 4.13
+- Your `.snyk` file from Lesson 4.13 (one Snyk finding accepted with a reason and an expiry)
 - Your **APP URL** (e.g. `https://devops-demo-sample.onrender.com` or `https://devops-demo-sample.up.railway.app`)
 - GitHub Actions basics from Lesson 4.9
+- **Admin** access to the repository (it's your own repository, so you have it)
 
 ---
 
 ## Introduction
 
-In Lesson 4.13, Snyk became a **gate** in your CircleCI pipeline: HIGH and CRITICAL issues stopped publish and deploy, and you reported them to the developers in a security ticket.
+In Lesson 4.13, Snyk became a **blocking security check** in your CircleCI pipeline: HIGH and CRITICAL issues stopped publish and deploy, and you accepted one finding temporarily in a `.snyk` file - with a reason and an expiry date.
 
-Today you'll add two more security checks - this time with **GitHub Actions**, in the same `devops-demo` repository:
+Today you'll add two more security checks - this time on **GitHub**, in the same `devops-demo` repository:
 
 | Check | Tool | Type (Lesson 4.13) | When it runs | Blocks deploy? |
 |---|---|---|---|---|
-| Dependency scan | **OSV-Scanner** (Google) | SCA | Every push to `main` + every Monday | **No** |
-| Running-app scan | **OWASP ZAP** | DAST | On demand after a deploy + every Monday | **No** |
+| Dependency monitoring | **Dependabot** (built into GitHub) | SCA | Whenever `pom.xml` changes, and whenever a new advisory is published | **No** |
+| Running-app scan | **OWASP ZAP** (GitHub Actions) | DAST | On demand after a deploy + every Monday | **No** |
 
 ```
-CircleCI (gate):       build ─► test ──┐
-                       snyk_scan ──────┴─► publish ─► deploy ─► Render / Railway
-                                                                    ▲
-GitHub Actions         OSV-Scanner: scans the repository            │
-(watchdogs):           ZAP: scans the live app ─────────────────────┘
+CircleCI (blocking):      build ─► test ──┐
+                          snyk_scan ──────┼─► publish ─► deploy ─► notify
+                          snyk_code ──────┘                │
+                                                           ▼
+                                                    Render / Railway
+                                                           ▲
+GitHub (non-blocking):    Dependabot: watches your         │
+                          dependencies                     │
+                          ZAP: scans the live app ─────────┘
 ```
 
-Neither new workflow is connected to CircleCI - they never block a release. They **watch** and **report**, and the results land in GitHub.
+Neither new check is connected to CircleCI - they never block a release. They **report**, and the results land in GitHub.
 
 ---
 
-## Part 1 - Gates vs Watchdogs
+## Part 1 - Blocking and Non-blocking Security Checks
 
-### Blocking checks (gates)
+### Blocking checks
 
 - Run **inside** the delivery pipeline
 - A failure **stops** the release
 - Must be **reliable** and use a **threshold** you can live with - otherwise nobody can ship
-- Today: `snyk_scan` in CircleCI (fails on HIGH and CRITICAL)
+- Today: `snyk_scan` and `snyk_code` in CircleCI (fail on HIGH and CRITICAL)
 
-### Non-blocking checks (watchdogs)
+### Non-blocking checks
 
 - Run **beside** the pipeline, or on a schedule
 - A failure **alerts** the team, but doesn't stop the release
 - Good for checks that are **noisy**, **slow**, or that find problems in code you **didn't change**
-- Today: OSV-Scanner and ZAP
+- Today: Dependabot and ZAP
 
-### Why OSV-Scanner is a watchdog here
+### Why Dependabot is non-blocking here
 
-- OSV-Scanner fails on **any** known vulnerability - LOW, MEDIUM, HIGH or CRITICAL. It has no simple severity threshold
-- As a gate, a single LOW issue in a Spring Boot library would stop every deployment
-- As a watchdog, it reports everything; the team decides what to fix, and when
+- Dependabot runs **on GitHub**, outside your CircleCI pipeline - it can't stop a release
+- It alerts on **any** severity - LOW, MEDIUM, HIGH or CRITICAL
+- It often finds problems in libraries you **didn't change** - and there may be no fix yet
+- Your **blocking** checks are still `snyk_scan` and `snyk_code` in CircleCI (HIGH and CRITICAL only)
 
-### Why scan on a schedule?
+### Continuous monitoring
 
-New vulnerabilities are published **every day** for libraries that were safe yesterday. A weekly scan catches them even if nobody pushes code.
+New vulnerabilities are published **every day** for libraries that were safe yesterday. You don't need to schedule anything: GitHub keeps a list of your dependencies (the **dependency graph**) and checks it again **every time** a new advisory is published - even if nobody pushes code.
 
 ---
 
-## Part 2 - Add OSV-Scanner with GitHub Actions
+## Part 2 - Turn On Dependabot
 
-**OSV-Scanner** is Google's free, open-source SCA tool. It reads `pom.xml`, works out every dependency (including transitive ones), and checks them against [OSV.dev](https://osv.dev) - an open database that combines the GitHub Advisory Database, NVD and others. **No account or API key needed.**
+**Dependabot** is GitHub's built-in dependency scanner. It compares your dependencies with the **GitHub Advisory Database** (which feeds the open OSV.dev database too). It's free for public repositories, and there's **no workflow file** to write - you switch it on in Settings.
 
-Google provides a ready-made GitHub Actions workflow for it.
+| Feature | What it does |
+|---|---|
+| **Dependency graph** | GitHub's list of every library your project uses |
+| **Automatic dependency submission** | GitHub runs **Maven** for you, so the graph includes **transitive** dependencies - not just the ones in `pom.xml` |
+| **Dependabot alerts** | Alerts in the **Security** tab when a library in the graph has a known vulnerability |
+| **Dependabot security updates** | Opens a **pull request** that upgrades a vulnerable library, when a fix exists |
 
-### Step 1: Create the Workflow File
+> **Why automatic dependency submission matters for us:** devops-demo's `pom.xml` lists only the Spring Boot **starters**, without versions - the real libraries (like `tomcat-embed-core`) come in **transitively**. Without submission, GitHub only sees the starters and misses most vulnerabilities.
 
-In your **devops-demo** project, create `.github/workflows/osv-scanner.yml`:
+### Step 1: Turn On Dependabot
+
+1. GitHub repository → **Settings**
+2. In the sidebar, under **Security and quality**, click **Advanced Security**
+3. Under **Dependency graph**:
+   - **Dependency graph** - make sure it's enabled (it is by default on public repositories)
+   - **Automatic dependency submission** - open the dropdown and select **Enabled**
+4. Under **Dependabot**:
+   - **Dependabot alerts** - click **Enable**
+   - **Dependabot security updates** - click **Enable**
+
+<!-- INSTRUCTOR: UI labels from GitHub docs (2026-11-10): Settings → "Security and quality" → Advanced Security. Automatic dependency submission needs GitHub Actions enabled and watches the pom.xml in the repository root. Dry-run on devops-demo: check that the submission run succeeds with Spring Boot 4 / Java 21, how many alerts appear, and whether Dependabot can open a security-update PR for a transitive dependency. -->
+
+### Step 2: Watch the Dependency Submission Run
+
+Turning on automatic dependency submission starts a run straight away:
+
+1. Open the **Actions** tab - a dependency submission run appears, started by GitHub (you didn't write this workflow)
+2. Wait for it to finish (1-3 minutes) - it runs Maven to resolve every dependency
+3. From now on it runs again **every time a commit to `main` changes `pom.xml`**
+
+**Then check the graph:** **Insights** tab → **Dependency graph** → **Dependencies**. You should see far more libraries than your `pom.xml` lists - including `tomcat-embed-core`, marked as **transitive**.
+
+### Step 3: Read the Alerts
+
+1. Repository → **Security** tab → **Dependabot**
+2. Click an alert
+
+**Each alert shows:**
+
+| Field | Meaning |
+|---|---|
+| **Package** | The vulnerable library and version - often **transitive** |
+| **Severity** | Critical, High, Moderate or Low |
+| **Advisory** | The CVE / GHSA ID, a description, and references |
+| **Patched version** | The first version that fixes it (if there is one) |
+| **Dependency path** | Which of **your** dependencies brings it in |
+
+Expect alerts: devops-demo's dependencies already have known vulnerabilities - the same ones `snyk_scan` stopped in Lesson 4.13.
+
+### Step 4: Look at a Security Update Pull Request
+
+When a fix exists, Dependabot opens a pull request that upgrades the library:
+
+1. Open the **Pull requests** tab - look for PRs by **dependabot**
+2. Open one: it shows the version change in `pom.xml` and links to the advisory
+3. Notice the **checks**: CircleCI runs your pipeline on the PR - including the **blocking** Snyk checks
+
+**Don't merge it today.** As in Lesson 4.13, fixing the app is the developers' job: they review and test the upgrade, then merge it.
+
+> No PR for an alert? Dependabot can't always upgrade a **transitive** library directly in Maven, or there may be no fix yet. Developers then upgrade the **Spring Boot parent** version instead.
+
+### Step 5: Keep Your Pinned Actions Up to Date
+
+You pin GitHub Actions by **commit SHA** (Lesson 4.13) - but who updates the SHA when a new version comes out? Dependabot can. Create `.github/dependabot.yml`:
 
 ```yaml
-name: osv-scanner
-
-on:
-  push:
-    branches: [ main ]
-  schedule:
-    - cron: "30 1 * * 1"   # every Monday 01:30 UTC (09:30 Singapore)
-  workflow_dispatch:       # adds a "Run workflow" button
-
-permissions:
-  actions: read
-  contents: read
-  security-events: write
-
-jobs:
-  osv-scan:
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
 ```
-
-### Step 2: Understand the Workflow
 
 | Part | Meaning |
 |---|---|
-| `push` to `main` | Scan every change |
-| `schedule` | Scan every Monday - catches new CVEs in unchanged code |
-| `workflow_dispatch` | Adds a **Run workflow** button in the Actions tab |
-| `permissions` | Read the code and **write results** to the Security tab (`security-events: write`) - nothing else |
-| `uses: ...osv-scanner-reusable.yml@...` | Google's ready-made **reusable workflow** - it checks out the code, runs OSV-Scanner and uploads the results |
+| `package-ecosystem: "github-actions"` | Check the actions used in `.github/workflows/` |
+| `schedule: weekly` | Look for new versions once a week |
 
-**Why the long SHA instead of `@v2.7.0`?**
-
-Remember the Trivy attack (Lesson 4.13): attackers moved **version tags** to malicious code. A full **commit SHA** can't be moved. The comment `# v2.7.0` keeps it readable.
-
-Google does the same inside its workflow - every action it uses is pinned by SHA:
-
-```yaml
-- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-```
-
-**Copy the SHA exactly** - one wrong character and GitHub can't find the workflow.
-
-<!-- INSTRUCTOR: SHAs checked 2026-10-21 with `git ls-remote https://github.com/google/osv-scanner-action.git refs/tags/v2.7.0^{}` (b1d267ae...). To update, run the same command for the new tag and use the peeled (^{}) commit. -->
-
-### Step 3: Commit and Push
+When a pinned action has a new release, Dependabot opens a PR that updates the **SHA** - and the `# v...` comment next to it. You get pinning **and** updates.
 
 ```bash
-git add .github/workflows/osv-scanner.yml
-git commit -m "Add OSV-Scanner GitHub Actions workflow"
+git add .github/dependabot.yml
+git commit -m "Add Dependabot version updates for GitHub Actions"
 git push origin main
 ```
 
-This push starts **both** CI systems: CircleCI runs your pipeline, and GitHub Actions runs OSV-Scanner.
+> Dependabot can do the same for `pom.xml` (`package-ecosystem: "maven"`) - but that opens a PR for every new library version. We only use it for actions today.
 
-### Step 4: Watch the Workflow
+### Step 6: Triage One Alert
 
-1. On GitHub, open your repository → **Actions** tab
-2. Click the **OSV-Scanner** run → the **osv-scan** job
-3. Open the **Run scanner** and **Run osv-scanner-reporter** steps
+In Lesson 4.13 you accepted one Snyk finding in `.snyk`. Dependabot doesn't read `.snyk` - **every tool keeps its own list** of accepted findings. So the same issue may still show up here.
 
-**Two possible results:**
-- ✅ **Green** - no known vulnerabilities in your dependencies today
-- ❌ **Red** - at least one known vulnerability, at **any** severity. Expect red: devops-demo's dependencies already have known vulnerabilities (Lesson 4.13). It doesn't affect CircleCI
+1. Open the Dependabot alert for the **same** issue you accepted in `.snyk` (or any one LOW or MODERATE alert)
+2. Click **Dismiss alert** and pick a reason - for example **Risk is tolerable to this project**
+3. Add a **comment**: why, and when to look at it again, e.g. *"Same as .snyk SNYK-JAVA-...: accepted until 2026-12-31, fix planned with the next Spring Boot upgrade"*
+4. Click **Dismiss alert**
 
-### Step 5: See the Results in the Security Tab
+The alert moves to **Closed**, with your reason and comment. You can reopen it at any time.
 
-1. Repository → **Security** tab → **Code scanning**
-2. Filter by tool: **osv-scanner**
-3. Click an alert to see the package, the vulnerability ID, its severity and the fixed version
-
-**Why the Security tab?** Results stay in one place, can be **dismissed with a reason**, and close automatically when a later scan no longer finds them. On public repositories this is free.
-
-Also notice the commit on your repository's main page: it now shows **two** status checks - CircleCI and GitHub Actions.
+| | `.snyk` (Lesson 4.13) | Dependabot dismissal |
+|---|---|---|
+| Where | A file in your repository | GitHub's Security tab |
+| Reviewed by | Pull request, like code | Whoever has access |
+| Expiry | `--expiry` date - comes back automatically | **No expiry** - put the review date in the comment |
 
 ---
 
@@ -234,10 +267,10 @@ jobs:
 | `schedule` | Re-check the live app every Monday |
 | `vars.APP_URL` | Your repository variable from Step 1 |
 | `allow_issue_writing: false` | Don't open a GitHub issue - we'll read the report instead |
-| `fail_action: false` | Don't fail the workflow because of alerts - a **watchdog**, like OSV-Scanner |
-| Pinned SHAs | Same rule as Part 2 |
+| `fail_action: false` | Don't fail the workflow because of alerts - a **non-blocking** check, like Dependabot |
+| Pinned SHAs | Same rule as Lesson 4.13 - and Dependabot keeps them up to date (Part 2, Step 5) |
 
-<!-- INSTRUCTOR: zaproxy/action-baseline v0.15.0 = de8ad967..., actions/checkout v7.0.1 = 3d3c42e5... (git ls-remote, 2026-10-21). The action pulls ghcr.io/zaproxy/zaproxy:stable by default (a tag) - an optional extension is setting docker_name to a digest. Run it once against your own Railway app to see which alerts appear before class. -->
+<!-- INSTRUCTOR: actions/upload-artifact@v7 is pinned by tag - replace it with its commit SHA (`git ls-remote https://github.com/actions/upload-artifact.git refs/tags/v7.0.2^{}`) so it follows the lesson's own rule. zaproxy/action-baseline also uploads its own zipped `zap_scan` artifact. zaproxy/action-baseline v0.15.0 = de8ad967..., actions/checkout v7.0.1 = 3d3c42e5... (git ls-remote, 2026-10-21). The action pulls ghcr.io/zaproxy/zaproxy:stable by default (a tag) - an optional extension is setting docker_name to a digest. Run it once against your own Railway app to see which alerts appear before class. -->
 
 ```bash
 git add .github/workflows/zap-baseline.yml
@@ -247,14 +280,15 @@ git push origin main
 
 ### Step 3: Run the Scan
 
-1. Repository → **Actions** tab → **ZAP Baseline Scan** (left sidebar)
-2. Click **Run workflow** → **Run workflow**
-3. Wait 2-3 minutes for it to finish
+1. Open your **APP URL** + `/hello` in a browser first - a sleeping free Render service takes about a minute to wake up
+2. Repository → **Actions** tab → **zap-baseline-scan** (left sidebar)
+3. Click **Run workflow** → **Run workflow**
+4. Wait 2-3 minutes for it to finish
 
 ### Step 4: Read the Report
 
-1. Open the finished run → scroll to **Artifacts** → download **zap_scan**
-2. Unzip it and open **`report_html.html`** in your browser
+1. Open the finished run - the job **Summary** shows the report
+2. For the full report, scroll to **Artifacts** and click **report_html.html** - it opens in your browser (no unzipping)
 
 **Each alert shows:**
 
@@ -274,16 +308,16 @@ git push origin main
 | Missing Anti-clickjacking Header | Stops other sites from embedding your pages in a frame |
 | X-Content-Type-Options Header Missing | Stops browsers guessing a response's content type |
 
-**Notice what ZAP found that Snyk and OSV-Scanner can't:** these are problems in how the app **behaves when running** - not in its libraries. That's why DAST complements SCA.
+**Notice what ZAP found that Snyk and Dependabot can't:** these are problems in how the app **behaves when running** - not in its libraries. That's why DAST complements SCA.
 
 ### Step 5: Discuss
 
 1. Why is the baseline scan safe to run against your live app, while a full scan is not?
 2. Which of the alerts would you fix first, and why?
-3. Snyk, OSV-Scanner and ZAP all reported different things. What does each one see that the others can't?
+3. Snyk, Dependabot and ZAP all reported different things. What does each one see that the others can't?
 4. Should the ZAP scan block deployment? What would happen if it did?
 
-<!-- Answers: 1) Baseline only sends normal requests and inspects responses; a full scan sends attack payloads that can change data or take the app down. 2) Usually the highest risk first; missing headers are Low/Medium but cheap to fix (Spring Security adds most of them by default). 3) Snyk/OSV: known CVEs in libraries (SCA). ZAP: behaviour of the running app - headers, cookies, errors (DAST). 4) ZAP needs a running app, so it can only run after deploy - blocking would mean deploying to a test environment first, scanning, then promoting to production. -->
+<!-- Answers: 1) Baseline only sends normal requests and inspects responses; a full scan sends attack payloads that can change data or take the app down. 2) Usually the highest risk first; missing headers are Low/Medium but cheap to fix (Spring Security adds most of them by default). 3) Snyk/Dependabot: known CVEs in libraries (SCA). ZAP: behaviour of the running app - headers, cookies, errors (DAST). 4) ZAP needs a running app, so it can only run after deploy - blocking would mean deploying to a test environment first, scanning, then promoting to production. -->
 
 ---
 
@@ -292,9 +326,9 @@ git push origin main
 | Where | Tool | Type | Role |
 |---|---|---|---|
 | Snyk website | Snyk | SCA | Dashboard; re-tests your project and emails you about new issues |
-| CircleCI | Snyk (`snyk_scan`) | SCA | **Gate** - blocks publish and deploy on HIGH and CRITICAL |
-| GitHub Actions | OSV-Scanner | SCA | **Watchdog** - every push and every Monday; results in the Security tab |
-| GitHub Actions | OWASP ZAP | DAST | **Watchdog** - scans the live app |
+| CircleCI | Snyk (`snyk_scan`, `snyk_code`) | SCA + SAST | **Blocking** - stop publish and deploy on HIGH and CRITICAL |
+| GitHub | Dependabot | SCA | **Non-blocking** - continuous; alerts in the Security tab, fix PRs |
+| GitHub Actions | OWASP ZAP | DAST | **Non-blocking** - scans the live app |
 
 **Defence in depth:** different tools, different data, different stages. No single scanner catches everything.
 
@@ -302,15 +336,17 @@ git push origin main
 
 ## Best Practices for DevSecOps
 
-**1. Gate on what must never ship; watch everything else** - gates need reliable thresholds; watchdogs can report everything
+**1. Block only what must never ship; report everything else** - blocking checks need reliable thresholds; non-blocking checks can report everything
 
-**2. Scan on a schedule** - new CVEs appear for code you haven't touched
+**2. Monitor continuously** - new CVEs appear for code you haven't touched
 
-**3. Pin actions and tools by commit SHA or hash** - not by tag (Lesson 4.13)
+**3. Pin actions and tools by commit SHA or hash** - not by tag (Lesson 4.13) - and let Dependabot keep the pins up to date
 
 **4. Give workflows the least permissions** - `contents: read` plus only what they need
 
 **5. DAST only against apps you own** - baseline for live apps; full scans in test environments
+
+**6. Every accepted risk needs a reason and a review date** - in `.snyk`, in a Dependabot dismissal, or anywhere else
 
 ---
 
@@ -318,11 +354,11 @@ git push origin main
 
 ### What You Accomplished Today
 
-1. ✅ Added OSV-Scanner with Google's reusable workflow, pinned by commit SHA
-2. ✅ Saw results in the GitHub **Security** tab
-3. ✅ Compared a **watchdog** (OSV-Scanner) with a **gate** (Snyk in CircleCI)
-4. ✅ Accepted one finding temporarily with `osv-scanner.toml` (reason + expiry + ticket)
-5. ✅ Saw that the other findings stay visible until developers fix them
+1. ✅ Turned on Dependabot alerts, security updates and **automatic dependency submission** - so transitive Maven dependencies are checked too
+2. ✅ Read Dependabot alerts in the GitHub **Security** tab and looked at a security-update pull request
+3. ✅ Added `.github/dependabot.yml` so pinned GitHub Actions stay up to date
+4. ✅ Dismissed one alert with a reason - and saw that every tool keeps its own list of accepted findings
+5. ✅ Compared a **non-blocking** check (Dependabot) with **blocking** checks (Snyk in CircleCI)
 6. ✅ Ran an OWASP ZAP baseline scan against your live app
 7. ✅ Read ZAP's report and compared DAST with SCA
 
@@ -330,40 +366,39 @@ git push origin main
 
 ## Troubleshooting Guide
 
-### Issue 1: "Unable to resolve action" / workflow not found
+### Issue 1: No Dependabot alerts, or only a few
 
-**Cause:** The commit SHA is wrong or incomplete
+**Cause:** Dependabot alerts are off, or GitHub only sees the starters in `pom.xml`
+
+**Solution:**
+1. **Settings** → **Advanced Security**: **Dependency graph**, **Automatic dependency submission** and **Dependabot alerts** are all on
+2. **Actions** tab: the dependency submission run finished successfully
+3. **Insights** → **Dependency graph**: transitive libraries such as `tomcat-embed-core` are listed
+
+---
+
+### Issue 2: The dependency submission run fails
+
+**Solution:**
+1. **Settings** → **Actions** → **General**: GitHub Actions must be allowed
+2. `pom.xml` must be in the **root** of the repository
+3. Open the failed run's log - a Maven build error in the project stops the submission too
+
+---
+
+### Issue 3: Dependabot didn't open a pull request for an alert
+
+**Cause:** There's no fixed version yet, or the vulnerable library is **transitive** and Dependabot can't upgrade it directly
+
+**Solution:** That's expected - developers upgrade the **Spring Boot parent** version instead. Also check **Dependabot security updates** is enabled.
+
+---
+
+### Issue 4: "Unable to resolve action" / workflow not found
+
+**Cause:** A commit SHA in the ZAP workflow is wrong or incomplete
 
 **Solution:** Copy the full 40-character SHA again - one wrong character breaks it.
-
----
-
-### Issue 2: OSV-Scanner fails with "Resource not accessible by integration" when uploading results
-
-**Cause:** Missing permissions
-
-**Solution:**
-1. Check the workflow has `security-events: write`, `actions: read` and `contents: read`
-2. Check your repository is **public** (code scanning results are free for public repositories)
-
----
-
-### Issue 3: OSV-Scanner is red but you didn't add anything
-
-**Cause:** A new vulnerability was published for one of your existing dependencies (often a transitive Spring Boot dependency)
-
-**Solution:**
-1. Open the alert in the Security tab - it names the package and the fixed version
-2. Fix it (often a newer Spring Boot version), or ignore it temporarily with a reason and an expiry
-
----
-
-### Issue 4: The ignore doesn't work
-
-**Solution:**
-1. `osv-scanner.toml` must be in the **same folder** as `pom.xml`
-2. The `id` must match the alert **exactly** (try the GHSA ID if the CVE ID doesn't work, or the other way round)
-3. `ignoreUntil` must be in the future and use the format `2026-12-31T00:00:00Z`
 
 ---
 
@@ -371,11 +406,11 @@ git push origin main
 
 **Solution:**
 1. Check the repository **variable** (not secret) `APP_URL` exists - Settings → Secrets and variables → Actions → **Variables**
-2. Check the URL starts with `https://` and the app is running (open `/hello` in your browser)
+2. Check the URL starts with `https://` and the app is running (open `/hello` in your browser - a sleeping Render service needs about a minute)
 
 ---
 
-### Issue 5: There's no "Run workflow" button
+### Issue 6: There's no "Run workflow" button
 
 **Solution:** The workflow file must be on the **default branch** (`main`) and include `workflow_dispatch:`.
 
@@ -383,11 +418,11 @@ git push origin main
 
 ## Additional Resources
 
-- [OSV-Scanner Documentation](https://google.github.io/osv-scanner/)
-- [OSV-Scanner GitHub Action](https://google.github.io/osv-scanner/github-action/)
-- [OSV.dev Vulnerability Database](https://osv.dev/)
+- [GitHub: About Dependabot alerts](https://docs.github.com/en/code-security/dependabot/dependabot-alerts/about-dependabot-alerts)
+- [GitHub: Configuring automatic dependency submission](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/configuring-automatic-dependency-submission-for-your-repository)
+- [GitHub: Keeping your actions up to date with Dependabot](https://docs.github.com/en/code-security/dependabot/working-with-dependabot/keeping-your-actions-up-to-date-with-dependabot)
+- [GitHub Advisory Database](https://github.com/advisories)
 - [OWASP ZAP](https://www.zaproxy.org/)
 - [ZAP Baseline Scan](https://www.zaproxy.org/docs/docker/baseline-scan/)
 - [GitHub: Security hardening for GitHub Actions](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions)
-- [GitHub Code Scanning](https://docs.github.com/en/code-security/code-scanning)
 - [OWASP Secure Headers Project](https://owasp.org/www-project-secure-headers/)

@@ -2,7 +2,7 @@
 
 ### Q1 (True/False)
 
-Q1: OSV-Scanner needs an account and an API key before it can scan a project?
+Q1: Dependabot alerts need a workflow file in `.github/workflows/` before they work?
 
 A - True
 
@@ -10,15 +10,15 @@ B - False
 
 ---
 
-Q2: Why is OSV-Scanner set up as a non-blocking check in this lesson?
+Q2: Why is Dependabot a non-blocking check in this lesson?
 
-A - It is too slow to run in GitHub Actions
+A - It is too slow
 
-B - It fails on vulnerabilities of any severity, so as a gate a single LOW issue would stop every deployment
+B - It runs on GitHub, outside the CircleCI pipeline, and alerts on any severity - the blocking Snyk checks decide what stops a release
 
 C - It cannot read pom.xml files
 
-D - GitHub Actions cannot block deployments
+D - It only works on private repositories
 
 ---
 
@@ -30,19 +30,19 @@ B - False
 
 ---
 
-Q4: Which fields should every entry in `osv-scanner.toml` have?
+Q4: Why do we turn on automatic dependency submission for devops-demo?
 
-A - Only the vulnerability ID
+A - So Dependabot can push code to the repository
 
-B - The ID and the package name
+B - So GitHub runs Maven and the dependency graph includes transitive libraries, not just the starters in pom.xml
 
-C - The ID, an expiry date (`ignoreUntil`) and a reason
+C - So CircleCI can read Dependabot alerts
 
-D - The ID and your GitHub username
+D - So the ZAP scan runs faster
 
 ---
 
-Q5: After the `ignoreUntil` date has passed, OSV-Scanner reports the ignored vulnerability again?
+Q5: A dismissed Dependabot alert reopens automatically after an expiry date, like an ignore in `.snyk`?
 
 A - True
 
@@ -82,11 +82,11 @@ B - False
 
 ---
 
-Q9: Where do OSV-Scanner's results appear in GitHub?
+Q9: Where do Dependabot alerts appear in GitHub?
 
 A - Only in the job logs
 
-B - In the Security tab under Code scanning
+B - In the Security tab under Dependabot
 
 C - In the repository's Wiki
 

@@ -2,36 +2,33 @@
 
 ## Brief
 
-Add non-blocking security checks to your repository with GitHub Actions, and practise managing a finding.
+Add non-blocking security checks to your repository on GitHub, and practise managing a finding.
 
-1. **Add OSV-Scanner with GitHub Actions**
+1. **Turn On Dependabot**
    - Use your devops-demo repository (public) with the Lesson 4.13 CircleCI pipeline (a failing snyk_scan is expected)
-   - Create `.github/workflows/osv-scanner.yml` that:
-     - Runs on push to `main`, every week on a schedule, and manually (`workflow_dispatch`)
-     - Uses Google's reusable workflow `google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml`
-     - Pins it by **full commit SHA** (not by tag), with the version as a comment
-     - Grants only `actions: read`, `contents: read` and `security-events: write`
-   - Commit, push and check the results in the **Security → Code scanning** tab
+   - In **Settings → Advanced Security**, turn on the dependency graph, **automatic dependency submission**, **Dependabot alerts** and **Dependabot security updates**
+   - Check that the dependency submission run finishes in the **Actions** tab, and that **Insights → Dependency graph** lists transitive libraries
+   - Add `.github/dependabot.yml` with a weekly `github-actions` update, commit and push
    - Take screenshots showing:
-     - The OSV-Scanner run in the Actions tab
-     - The Security tab (alerts, or "no alerts")
+     - The Dependabot alerts in the **Security** tab
+     - The dependency graph with at least one transitive library
+     - A Dependabot pull request, if one was opened
    - Write a brief explanation (3-4 sentences):
-     - Why this check is non-blocking, while `snyk_scan` in CircleCI is a gate
-     - Why the workflow is pinned by commit SHA
+     - Why Dependabot is non-blocking, while `snyk_scan` in CircleCI is a blocking check
+     - Why automatic dependency submission matters for a Spring Boot `pom.xml`
 
-2. **Triage a Finding**
-   - Pick one LOW or MEDIUM OSV-Scanner alert from the Security tab
-   - Create `osv-scanner.toml` with an `[[IgnoredVulns]]` entry that has an `id`, an `ignoreUntil` date and a `reason` that links your Lesson 4.13 security ticket
-   - Push and confirm the chosen alert closes while the other findings stay open
+2. **Triage an Alert**
+   - Pick one Dependabot alert - ideally the issue you accepted in `.snyk` in Lesson 4.13
+   - Dismiss it with a reason and a comment that says why, and when it will be reviewed again
    - Write a brief report (4-5 sentences):
-     - The vulnerability ID, severity and fixed version (if any)
+     - The vulnerability ID, severity and patched version (if any)
      - Why you accepted it temporarily, and who fixes it
+     - How a Dependabot dismissal differs from an ignore in `.snyk`
      - When ignoring a finding is acceptable, and when it isn't
-     - Why every ignore needs a reason and an expiry date
 
 3. **Run a DAST Scan (Stretch)**
    - Add `.github/workflows/zap-baseline.yml` using `zaproxy/action-baseline` (pinned by commit SHA) against your live app URL (Render or Railway), stored as the repository variable `APP_URL`
-   - Run it manually and download the `zap_scan` artifact
+   - Run it manually and open the `report_html.html` artifact
    - List the three highest-risk alerts and the solution ZAP suggests for each
 
 ## Submission (Optional)
@@ -40,7 +37,7 @@ Add non-blocking security checks to your repository with GitHub Actions, and pra
 - Should you reference the work of your classmate(s) or online resources, give them credit by adding either the name of your classmate or URL.
 
 ## References
-- OSV-Scanner: https://google.github.io/osv-scanner/
-- OSV-Scanner GitHub Action: https://google.github.io/osv-scanner/github-action/
+- Dependabot alerts: https://docs.github.com/en/code-security/dependabot/dependabot-alerts/about-dependabot-alerts
+- Automatic dependency submission: https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/configuring-automatic-dependency-submission-for-your-repository
 - OWASP ZAP baseline scan: https://www.zaproxy.org/docs/docker/baseline-scan/
 - OWASP: https://cheatsheetseries.owasp.org/
