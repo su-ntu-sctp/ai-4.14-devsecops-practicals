@@ -6,7 +6,7 @@ Add non-blocking security checks to your repository on GitHub, and practise mana
 
 1. **Turn On Dependabot**
    - Use your devops-demo repository (public) with the Lesson 4.13 CircleCI pipeline (a failing snyk_scan is expected)
-   - In **Settings → Advanced Security**, turn on the dependency graph, **automatic dependency submission**, **Dependabot alerts** and **Dependabot security updates**
+   - In **Settings → Advanced Security**, turn on the dependency graph, **automatic dependency submission**, **Dependabot alerts**, **malware alerts** and **Dependabot security updates** (leave grouped security updates off)
    - Check that the dependency submission run finishes in the **Actions** tab, and that **Insights → Dependency graph** lists transitive libraries
    - Add `.github/dependabot.yml` with a weekly `github-actions` update, commit and push
    - Take screenshots showing:
@@ -16,6 +16,7 @@ Add non-blocking security checks to your repository on GitHub, and practise mana
    - Write a brief explanation (3-4 sentences):
      - Why Dependabot is non-blocking, while `snyk_scan` in CircleCI is a blocking check
      - Why automatic dependency submission matters for a Spring Boot `pom.xml`
+     - Why we leave **grouped security updates** off, and when a team would turn it on
 
 2. **Triage an Alert**
    - Pick one Dependabot alert - ideally the issue you accepted in `.snyk` in Lesson 4.13

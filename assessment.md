@@ -100,6 +100,38 @@ A - True
 
 B - False
 
+---
+
+Q11: What is the difference between a Dependabot alert and a Dependabot malware alert?
+
+A - There is no difference
+
+B - A Dependabot alert is about a known vulnerability (a bug that can be exploited); a malware alert is about a package published on purpose to attack you
+
+C - Malware alerts only work for Docker images
+
+D - Malware alerts block the CircleCI pipeline
+
+---
+
+Q12: Why might a team turn on grouped security updates?
+
+A - To get one pull request with all security updates for an ecosystem, instead of one per alert
+
+B - To make Dependabot block deployments
+
+C - To turn off Dependabot alerts
+
+D - To scan the live application
+
+---
+
+Q13: Turning on the "Dismiss package malware alerts" auto-triage rule is always safe?
+
+A - True
+
+B - False
+
 ## Notes
 - Keep each question atomic and aligned to the lesson objectives.
 - Put the answer immediately after each question.

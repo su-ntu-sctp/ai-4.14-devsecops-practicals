@@ -92,7 +92,37 @@ New vulnerabilities are published **every day** for libraries that were safe yes
 | **Dependabot alerts** | Alerts in the **Security** tab when a library in the graph has a known vulnerability |
 | **Dependabot security updates** | Opens a **pull request** that upgrades a vulnerable library, when a fix exists |
 
+### What Are Transitive Dependencies?
+
+A **transitive dependency** is a library your project uses only because one of **your** dependencies needs it. You never list it yourself - Maven downloads it for you.
+
+devops-demo's `pom.xml` lists `spring-boot-starter-webmvc`. That starter needs Tomcat to run a web server, so Maven also downloads `tomcat-embed-core` - even though it never appears in your `pom.xml`:
+
+```
+pom.xml (you write this)
+└── spring-boot-starter-webmvc              ← direct dependency
+    └── spring-boot-starter-tomcat          ← transitive
+        └── ...
+            └── tomcat-embed-core           ← transitive (several levels down)
+```
+
+**Why they matter for security:**
+- **Most of your code is code you didn't choose** - a few starters bring in dozens of libraries
+- **Most vulnerabilities are found there** - the Snyk findings in Lesson 4.13 were in `tomcat-embed-core`, a transitive library
+- **A scanner must see the whole tree** - reading `pom.xml` alone only shows the starters
+- **You usually can't upgrade them directly** - the fix normally comes through the direct dependency that brings them in (for Spring Boot: a newer Spring Boot version)
+
+**See the tree yourself** - in your devops-demo folder:
+
+```bash
+./mvnw dependency:tree
+```
+
+Lines with no indent are your **direct** dependencies; everything indented under them is **transitive**.
+
 > **Why automatic dependency submission matters for us:** devops-demo's `pom.xml` lists only the Spring Boot **starters**, without versions - the real libraries (like `tomcat-embed-core`) come in **transitively**. Without submission, GitHub only sees the starters and misses most vulnerabilities.
+
+<!-- INSTRUCTOR: in Spring Boot 4.x the Tomcat path is spring-boot-starter-webmvc → spring-boot-starter-tomcat → spring-boot-starter-tomcat-runtime → tomcat-embed-core (Maven Central, 2026-11-10; the "..." hides the in-between starters). Run ./mvnw dependency:tree on devops-demo before class to show the exact tree. -->
 
 ### Step 1: Turn On Dependabot
 
@@ -103,9 +133,31 @@ New vulnerabilities are published **every day** for libraries that were safe yes
    - **Automatic dependency submission** - open the dropdown and select **Enabled**
 4. Under **Dependabot**:
    - **Dependabot alerts** - click **Enable**
+   - **Malware alerts** - click **Enable**
    - **Dependabot security updates** - click **Enable**
+   - Leave **Grouped security updates** off
 
-<!-- INSTRUCTOR: UI labels from GitHub docs (2026-11-10): Settings → "Security and quality" → Advanced Security. Automatic dependency submission needs GitHub Actions enabled and watches the pom.xml in the repository root. Dry-run on devops-demo: check that the submission run succeeds with Spring Boot 4 / Java 21, how many alerts appear, and whether Dependabot can open a security-update PR for a transitive dependency. -->
+<!-- INSTRUCTOR: UI labels from GitHub docs (2026-11-10): Settings → "Security and quality" → Advanced Security. Automatic dependency submission needs GitHub Actions enabled and watches the pom.xml in the repository root. Dry-run on devops-demo: check that the submission run succeeds with Spring Boot 4 / Java 21, how many alerts appear, and whether Dependabot can open a security-update PR for a transitive dependency. Malware alerts: off by default; GitHub's malware-alerts docs still say npm only, but the 28 Jul 2026 changelog extended them to more ecosystems (reported as eight, including Maven) - check the setting is there. Auto-triage presets and custom rules: GitHub docs, 2026-11-10. -->
+
+### What Each Dependabot Setting Does
+
+The **Advanced Security** page has more Dependabot settings than we switch on. Here's what each one does, and why we turn it on - or not - today:
+
+| Setting | What it does | Today | Why |
+|---|---|---|---|
+| **Dependency graph** | GitHub's list of the libraries your project uses | ✅ On (default) | Every other Dependabot feature needs it |
+| **Automatic dependency submission** | GitHub runs Maven in GitHub Actions and adds **transitive** libraries to the graph | ✅ On | `pom.xml` only lists the Spring Boot starters - without it, most vulnerable libraries are invisible |
+| **Dependabot alerts** | Alerts when a library in the graph has a known **vulnerability** (a bug that can be exploited) | ✅ On | The core of today's lesson |
+| **Malware alerts** | Alerts when a library is a known **malicious package** - published on purpose to attack you, e.g. to steal secrets. Data from the OpenSSF malicious-packages list | ✅ On | Supply-chain attacks like the Trivy attack (Lesson 4.13) are real. It's quiet unless something is very wrong - and if it fires, act at once |
+| **Dependabot security updates** | Opens a pull request that upgrades a vulnerable library, when a fix exists | ✅ On | Shows the fix, not just the problem |
+| **Grouped security updates** | Puts **all** security updates for an ecosystem (e.g. Maven) into **one** pull request | ❌ Off | One PR per alert is easier to read and review today. Teams with many dependencies turn it on to cut PR noise - but one failing upgrade then holds back all the others |
+| **Dependabot version updates** (`dependabot.yml`) | Opens a pull request for **every** new version of a dependency - not just security fixes | Only for GitHub Actions (Step 5) | Keeps our SHA pins current. For Maven it would open a PR for every new library version |
+| **Auto-triage rule (GitHub preset): Dismiss low impact issues for development-scoped dependencies** | Auto-dismisses some low-risk alerts in **npm** packages used only in development | Leave as is (on by default for public repositories) | It doesn't apply to Maven, so it changes nothing for devops-demo |
+| **Auto-triage rule (GitHub preset): Dismiss package malware alerts** | Auto-dismisses malware alerts that flag **every** version of a package - often a false alarm when a company's internal package has the same name as a malicious public one | ❌ Off (default) | We have no internal packages - and it would also hide a **real** malicious dependency |
+| **Custom auto-triage rules** | Your own rules that dismiss or snooze alerts automatically (by severity, package, CWE and more), before anyone is notified | ❌ Not today | Triage by hand first, to learn the judgment. Teams add rules once they know which alerts they always accept |
+| **Dependabot on Actions runners** | Where Dependabot's own update jobs run | Leave as is | No change needed for a public repository |
+
+> **Auto-triage rules vs your Step 6 dismissal:** a rule dismisses **every** matching alert automatically, now and in the future. Your Step 6 dismissal is **one** decision about **one** alert, with your reason. Rules save time - but only for decisions you'd make the same way every time.
 
 ### Step 2: Watch the Dependency Submission Run
 
@@ -144,7 +196,129 @@ When a fix exists, Dependabot opens a pull request that upgrades the library:
 
 **Don't merge it today.** As in Lesson 4.13, fixing the app is the developers' job: they review and test the upgrade, then merge it.
 
-> No PR for an alert? Dependabot can't always upgrade a **transitive** library directly in Maven, or there may be no fix yet. Developers then upgrade the **Spring Boot parent** version instead.
+> No PR for an alert? Dependabot can't always upgrade a **transitive** library directly in Maven, or there may be no fix yet. Developers then fix it in `pom.xml` themselves - see the next section.
+
+### How Developers Fix a Transitive Dependency
+
+Say Dependabot (or Snyk) reports a vulnerability in **`tomcat-embed-core`**. Your `pom.xml` doesn't list Tomcat anywhere - so where does its version come from, and how do you change it?
+
+#### Where the versions come from
+
+Your `pom.xml` has a **parent**, and the parent has a parent:
+
+```
+devops-demo/pom.xml
+└── parent: spring-boot-starter-parent 4.1.1
+    └── parent: spring-boot-dependencies 4.1.1   ← sets a version for every library Spring Boot supports
+```
+
+`spring-boot-dependencies` stores each version in a **property**. Spring Boot lists them all in the **Version Properties** table:
+
+➡️ [Spring Boot - Version Properties](https://docs.spring.io/spring-boot/appendix/dependency-versions/properties.html) (use the version menu on the page to match your Spring Boot version)
+
+| Library (search the table for) | Property |
+|---|---|
+| Tomcat | `tomcat.version` |
+| Jackson 3 (`tools.jackson...`) | `jackson-bom.version` |
+
+The name isn't always `<library>.version` - **look it up, never guess**. A property you get wrong does nothing, and Maven won't warn you.
+
+#### Step A: Check which version you have
+
+```bash
+./mvnw dependency:tree -Dincludes=org.apache.tomcat.embed
+```
+
+(On Windows: `mvnw.cmd` instead of `./mvnw`.)
+
+`-Dincludes` shows only the libraries whose **groupId** matches. Every Maven library has an "address" made of these parts - this is one line of the output:
+
+```
+org.apache.tomcat.embed:tomcat-embed-core:jar:11.0.N:compile
+└────── groupId ──────┘ └─ artifactId ──┘  │    │       └─ scope
+                                           │    └─ version
+                                           └─ packaging
+```
+
+| Part | Meaning | Example |
+|---|---|---|
+| **groupId** | Who publishes it - usually a reversed domain name | `org.apache.tomcat.embed` (Apache Tomcat) |
+| **artifactId** | Which library | `tomcat-embed-core` |
+| **version** | Which release | `11.0.N` |
+
+The output looks like this - the path from **your** project down to Tomcat:
+
+```
+[INFO] com.example:devops-demo:jar:0.0.1-SNAPSHOT
+[INFO] \- org.springframework.boot:spring-boot-starter-webmvc:jar:4.1.1:compile
+[INFO]    \- org.springframework.boot:spring-boot-starter-tomcat:jar:4.1.1:compile
+[INFO]       \- ...
+[INFO]          +- org.apache.tomcat.embed:tomcat-embed-core:jar:11.0.N:compile
+[INFO]          +- org.apache.tomcat.embed:tomcat-embed-el:jar:11.0.N:compile
+[INFO]          \- org.apache.tomcat.embed:tomcat-embed-websocket:jar:11.0.N:compile
+```
+
+To look at **one** library only, use `groupId:artifactId`: `-Dincludes=org.apache.tomcat.embed:tomcat-embed-core`
+
+<!-- INSTRUCTOR: replace this sample with the real output of `./mvnw dependency:tree -Dincludes=org.apache.tomcat.embed` on devops-demo (Spring Boot 4.1.1), including the real Tomcat version and the starters between spring-boot-starter-tomcat and the Tomcat jars. -->
+
+#### Step B, Fix 1 (try first): Upgrade Spring Boot - 4.1.1 → 4.1.2
+
+A newer Spring Boot **patch** release usually brings a fixed Tomcat that's already tested with the rest of Spring Boot. Change **one number** in `pom.xml`:
+
+```diff
+ <parent>
+     <groupId>org.springframework.boot</groupId>
+     <artifactId>spring-boot-starter-parent</artifactId>
+-    <version>4.1.1</version>
++    <version>4.1.2</version>
+     <relativePath/> <!-- lookup parent from repository -->
+ </parent>
+```
+
+Stay on the same **4.1.x** line - a patch upgrade, not a jump to a new minor or major version.
+
+#### Step B, Fix 2 (only if Fix 1 isn't enough): Override `tomcat.version`
+
+If even the newest Spring Boot patch still ships the vulnerable Tomcat, set the version yourself. Take the **Patched version** from the Dependabot alert and add **one line** to `<properties>`:
+
+```diff
+ <properties>
+     <java.version>21</java.version>
++    <tomcat.version>11.0.N</tomcat.version>  <!-- the patched version from the alert -->
+ </properties>
+```
+
+- **Don't** add a `<dependency>` for `tomcat-embed-core` - the property moves **all** the Tomcat libraries (core, el, websocket) together
+- Stay on the same Tomcat line (11.0.x) - only the last number changes
+- **Remove the line** the next time you upgrade Spring Boot - otherwise it may hold Tomcat back at an older version
+
+#### Step C: Check locally
+
+```bash
+# 1. Which Tomcat version does Maven use now?
+./mvnw dependency:tree -Dincludes=org.apache.tomcat.embed
+
+# 2. (Fix 2 only) Is your property used? Shows the value Maven ends up with
+./mvnw help:effective-pom | grep "<tomcat.version>"
+
+# 3. Does the app still work?
+./mvnw test
+```
+
+Every Tomcat line should show the **new** version, and the tests should pass.
+
+#### Step D: Commit and push
+
+```bash
+git add pom.xml
+git commit -m "Upgrade Spring Boot to 4.1.2 to fix tomcat-embed-core vulnerability"
+git push origin main
+```
+
+CircleCI runs again (including the Snyk checks), automatic dependency submission updates the dependency graph, and the Dependabot alert **closes by itself** once the vulnerable version is gone.
+
+<!-- INSTRUCTOR: Spring Boot 4.1.2 is the latest 4.1.x patch (checked 2026-11-10). Before class, check which Tomcat version 4.1.1 and 4.1.2 use (Dependency Versions page or dependency:tree) and whether 4.1.2 closes devops-demo's Tomcat alerts - if not, demo Fix 2. Decide whether students push the fix in class: pushing to main also runs publish and deploy if every blocking check passes. -->
 
 ### Step 5: Keep Your Pinned Actions Up to Date
 
